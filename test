@@ -1,0 +1,762 @@
+# app/models.py
+from sqlmodel import SQLModel, Field, Relationship, Session
+from typing import Optional, List, ForwardRef
+from datetime import datetime
+from sqlalchemy import Column, CheckConstraint
+import enum
+
+
+# Base Models
+class BaseModel(SQLModel):
+    """
+    A base class for shared functionality across all models.
+    """
+    created_timestamp: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    last_edited_timestamp: Optional[datetime] = Field(default_factory=datetime.utcnow, sa_column=Column(onupdate=datetime.utcnow))
+
+    def __repr__(self):
+        """
+        Return a string representation of the object.
+        """
+        field_values = ", ".join(
+            f"{key}={value}" for key, value in vars(self).items() if not key.startswith("_")
+        )
+        return f"<{self.__class__.__name__}({field_values})>"
+
+    def to_dict(self):
+        """
+        Convert the model instance to a dictionary.
+        """
+        return {key: value for key, value in vars(self).items() if not key.startswith("_")}
+
+    @classmethod
+    def from_dict(cls, data):
+        """
+        Create an instance from a dictionary.
+        """
+        return cls(**data)
+
+
+class DifficultyLevel(str, enum.Enum):
+    BEGINNER = "Beginner"
+    INTERMEDIATE = "Intermediate"
+    ADVANCED = "Advanced"
+    EXPERT = "Expert"
+
+
+# User Model
+class User(BaseModel, table=True):
+    user_id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(unique=True, index=True)
+    email: str = Field(unique=True, index=True)
+    password_hash: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    is_active: bool = Field(default=True)
+    is_admin: bool = Field(default=False)
+    profile_image_url: Optional[str] = None
+    bio: Optional[str] = None
+    fitness_level: Optional[str] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    workout_sessions: List["WorkoutSession"] = Relationship(back_populates="user")
+    fitness_goals: List["FitnessGoal"] = Relationship(back_populates="user")
+
+
+class FitnessGoal(BaseModel, table=True):
+    goal_id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.user_id")
+    goal_name: str
+    description: Optional[str] = None
+    target_date: Optional[datetime] = None
+    is_achieved: bool = Field(default=False)
+    progress_percentage: Optional[float] = Field(default=0.0)
+    goal_type: Optional[str] = None
+    user: Optional[User] = Relationship(back_populates="fitness_goals")
+
+
+# Workout Type and Exercise Models
+class WorkoutType(BaseModel, table=True):
+    workout_type_id: Optional[int] = Field(default=None, primary_key=True)
+    workout_name: str = Field(unique=True, index=True)
+    muscle_group_targeted: str
+    category_type: Optional[str] = None
+    description: Optional[str] = None
+    difficulty_level: Optional[DifficultyLevel] = None
+    average_duration_minutes: Optional[int] = None
+    image_url: Optional[str] = None
+    exercises: List["Exercise"] = Relationship(back_populates="workout_type")
+
+
+class Exercise(BaseModel, table=True):
+    exercise_id: Optional[int] = Field(default=None, primary_key=True)
+    workout_type_id: Optional[int] = Field(foreign_key="workouttype.workout_type_id")
+    exercise_name: str = Field(unique=True, index=True)
+    description: Optional[str] = None
+    equipment_required: Optional[str] = None
+    primary_muscle_group: Optional[str] = None
+    difficulty_level: Optional[DifficultyLevel] = None
+    calories_burned_per_minute: Optional[float] = None
+    muscle_groups_secondary: Optional[str] = None
+    video_tutorial_link: Optional[str] = None
+    image_url: Optional[str] = None
+    workout_type: Optional[WorkoutType] = Relationship(back_populates="exercises")
+    exercise_logs: List["ExerciseLog"] = Relationship(back_populates="exercise")
+
+
+# Workout Session Model
+class WorkoutSession(BaseModel, table=True):
+    session_id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.user_id", index=True)
+    workout_date: datetime = Field(default_factory=datetime.utcnow)
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    total_duration_minutes: Optional[int] = None
+    location: Optional[str] = None
+    perceived_exertion: Optional[int] = Field(default=None, ge=1, le=10)  # Rate of Perceived Exertion (1-10)
+    calories_burned: Optional[int] = None
+    notes: Optional[str] = None
+    workout_source: Optional[str] = None
+    is_completed: bool = Field(default=False)
+    mood: Optional[str] = None
+    user: Optional[User] = Relationship(back_populates="workout_sessions")
+    exercise_logs: List["ExerciseLog"] = Relationship(back_populates="session")
+
+
+# Exercise Log Model
+class ExerciseLog(BaseModel, table=True):
+    exercise_log_id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: int = Field(foreign_key="workoutsession.session_id", index=True)
+    exercise_id: int = Field(foreign_key="exercise.exercise_id", index=True)
+    set_number: Optional[int] = None
+    repetitions: Optional[int] = None
+    weight_kg: Optional[float] = None
+    duration_seconds: Optional[int] = None
+    rest_time_seconds: Optional[int] = None
+    notes: Optional[str] = None
+    difficulty_level: Optional[DifficultyLevel] = None
+    form_rating: Optional[int] = Field(default=None, ge=1, le=5)  # Rating of form/technique (1-5)
+    session: Optional[WorkoutSession] = Relationship(back_populates="exercise_logs")
+    exercise: Optional[Exercise] = Relationship(back_populates="exercise_logs")
+
+
+# Performance Tracking
+class BodyMeasurement(BaseModel, table=True):
+    measurement_id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.user_id", index=True)
+    measurement_date: datetime = Field(default_factory=datetime.utcnow)
+    weight_kg: Optional[float] = None
+    body_fat_percentage: Optional[float] = None
+    chest_cm: Optional[float] = None
+    waist_cm: Optional[float] = None
+    hips_cm: Optional[float] = None
+    arms_cm: Optional[float] = None
+    thighs_cm: Optional[float] = None
+    calves_cm: Optional[float] = None
+    notes: Optional[str] = None
+    user: Optional[User] = Relationship()
+
+
+# Resolve forward references
+User.update_forward_refs()
+WorkoutType.update_forward_refs()
+Exercise.update_forward_refs()
+WorkoutSession.update_forward_refs()
+ExerciseLog.update_forward_refs()
+FitnessGoal.update_forward_refs()
+
+
+# app/database.py
+from sqlmodel import create_engine, SQLModel, Session
+import os
+from typing import Generator
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Get database URL from environment variables or use a default
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///workout_app.db")
+
+# Create SQLAlchemy engine
+engine = create_engine(
+    DATABASE_URL, 
+    echo=os.getenv("SQL_ECHO", "False").lower() == "true",
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+)
+
+
+def create_db_and_tables():
+    """Create database tables if they don't exist"""
+    SQLModel.metadata.create_all(engine)
+
+
+def get_session() -> Generator[Session, None, None]:
+    """Session dependency for FastAPI"""
+    with Session(engine) as session:
+        yield session
+
+
+# app/auth.py
+from datetime import datetime, timedelta
+from typing import Optional
+from jose import jwt, JWTError
+from passlib.context import CryptContext
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from sqlmodel import Session, select
+from .models import User
+from .database import get_session
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Secret key and token settings
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+
+def get_user(session: Session, username: str):
+    statement = select(User).where(User.username == username)
+    user = session.exec(statement).first()
+    return user
+
+
+def authenticate_user(session: Session, username: str, password: str):
+    user = get_user(session, username)
+    if not user:
+        return False
+    if not verify_password(password, user.password_hash):
+        return False
+    return user
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = get_user(session, username=username)
+    if user is None:
+        raise credentials_exception
+    return user
+
+
+async def get_current_active_user(current_user: User = Depends(get_current_user)):
+    if not current_user.is_active:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    return current_user
+
+
+async def get_current_admin_user(current_user: User = Depends(get_current_user)):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return current_user
+
+
+# app/schemas.py
+from pydantic import BaseModel, EmailStr, validator
+from typing import Optional, List
+from datetime import datetime
+from .models import DifficultyLevel
+
+
+# User schemas
+class UserBase(BaseModel):
+    username: str
+    email: EmailStr
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    fitness_level: Optional[str] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    bio: Optional[str] = None
+
+
+class UserCreate(UserBase):
+    password: str
+
+    @validator('password')
+    def password_min_length(cls, v):
+        if len(v) < 8:
+            raise ValueError('Password must be at least 8 characters long')
+        return v
+
+
+class UserUpdate(UserBase):
+    username: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class UserResponse(UserBase):
+    user_id: int
+    is_active: bool
+    created_timestamp: datetime
+    last_edited_timestamp: datetime
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class TokenData(BaseModel):
+    username: Optional[str] = None
+
+
+# Exercise schemas
+class ExerciseBase(BaseModel):
+    exercise_name: str
+    workout_type_id: Optional[int] = None
+    description: Optional[str] = None
+    equipment_required: Optional[str] = None
+    primary_muscle_group: Optional[str] = None
+    difficulty_level: Optional[DifficultyLevel] = None
+    calories_burned_per_minute: Optional[float] = None
+    muscle_groups_secondary: Optional[str] = None
+    video_tutorial_link: Optional[str] = None
+    image_url: Optional[str] = None
+
+
+class ExerciseCreate(ExerciseBase):
+    pass
+
+
+class ExerciseUpdate(ExerciseBase):
+    exercise_name: Optional[str] = None
+
+
+class ExerciseResponse(ExerciseBase):
+    exercise_id: int
+    created_timestamp: datetime
+    last_edited_timestamp: datetime
+
+
+# Workout Type schemas
+class WorkoutTypeBase(BaseModel):
+    workout_name: str
+    muscle_group_targeted: str
+    category_type: Optional[str] = None
+    description: Optional[str] = None
+    difficulty_level: Optional[DifficultyLevel] = None
+    average_duration_minutes: Optional[int] = None
+    image_url: Optional[str] = None
+
+
+class WorkoutTypeCreate(WorkoutTypeBase):
+    pass
+
+
+class WorkoutTypeUpdate(WorkoutTypeBase):
+    workout_name: Optional[str] = None
+    muscle_group_targeted: Optional[str] = None
+
+
+class WorkoutTypeResponse(WorkoutTypeBase):
+    workout_type_id: int
+    created_timestamp: datetime
+    last_edited_timestamp: datetime
+
+
+# Exercise Log schemas
+class ExerciseLogBase(BaseModel):
+    exercise_id: int
+    set_number: Optional[int] = None
+    repetitions: Optional[int] = None
+    weight_kg: Optional[float] = None
+    duration_seconds: Optional[int] = None
+    rest_time_seconds: Optional[int] = None
+    notes: Optional[str] = None
+    difficulty_level: Optional[DifficultyLevel] = None
+    form_rating: Optional[int] = None
+
+
+class ExerciseLogCreate(ExerciseLogBase):
+    pass
+
+
+class ExerciseLogUpdate(ExerciseLogBase):
+    exercise_id: Optional[int] = None
+
+
+class ExerciseLogResponse(ExerciseLogBase):
+    exercise_log_id: int
+    session_id: int
+    created_timestamp: datetime
+    last_edited_timestamp: datetime
+
+
+# Workout Session schemas
+class WorkoutSessionBase(BaseModel):
+    workout_date: datetime
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    total_duration_minutes: Optional[int] = None
+    location: Optional[str] = None
+    perceived_exertion: Optional[int] = None
+    calories_burned: Optional[int] = None
+    notes: Optional[str] = None
+    workout_source: Optional[str] = None
+    is_completed: bool = False
+    mood: Optional[str] = None
+
+
+class WorkoutSessionCreate(WorkoutSessionBase):
+    exercise_logs: Optional[List[ExerciseLogCreate]] = None
+
+
+class WorkoutSessionUpdate(WorkoutSessionBase):
+    workout_date: Optional[datetime] = None
+    exercise_logs: Optional[List[ExerciseLogCreate]] = None
+
+
+class WorkoutSessionResponse(WorkoutSessionBase):
+    session_id: int
+    user_id: int
+    created_timestamp: datetime
+    last_edited_timestamp: datetime
+    exercise_logs: Optional[List[ExerciseLogResponse]] = None
+
+
+# Body Measurement schemas
+class BodyMeasurementBase(BaseModel):
+    measurement_date: datetime
+    weight_kg: Optional[float] = None
+    body_fat_percentage: Optional[float] = None
+    chest_cm: Optional[float] = None
+    waist_cm: Optional[float] = None
+    hips_cm: Optional[float] = None
+    arms_cm: Optional[float] = None
+    thighs_cm: Optional[float] = None
+    calves_cm: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class BodyMeasurementCreate(BodyMeasurementBase):
+    pass
+
+
+class BodyMeasurementUpdate(BodyMeasurementBase):
+    measurement_date: Optional[datetime] = None
+
+
+class BodyMeasurementResponse(BodyMeasurementBase):
+    measurement_id: int
+    user_id: int
+    created_timestamp: datetime
+    last_edited_timestamp: datetime
+
+
+# Fitness Goal schemas
+class FitnessGoalBase(BaseModel):
+    goal_name: str
+    description: Optional[str] = None
+    target_date: Optional[datetime] = None
+    is_achieved: bool = False
+    progress_percentage: Optional[float] = 0.0
+    goal_type: Optional[str] = None
+
+
+class FitnessGoalCreate(FitnessGoalBase):
+    pass
+
+
+class FitnessGoalUpdate(FitnessGoalBase):
+    goal_name: Optional[str] = None
+
+
+class FitnessGoalResponse(FitnessGoalBase):
+    goal_id: int
+    user_id: int
+    created_timestamp: datetime
+    last_edited_timestamp: datetime
+
+
+# app/api/users.py
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlmodel import Session, select
+from typing import List
+from ..models import User
+from ..database import get_session
+from ..schemas import UserCreate, UserResponse, UserUpdate
+from ..auth import get_password_hash, get_current_active_user, get_current_admin_user
+
+router = APIRouter(prefix="/users", tags=["users"])
+
+
+@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def create_user(user: UserCreate, session: Session = Depends(get_session)):
+    db_user = session.exec(select(User).where(User.username == user.username)).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    db_email = session.exec(select(User).where(User.email == user.email)).first()
+    if db_email:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    hashed_password = get_password_hash(user.password)
+    db_user = User(
+        username=user.username,
+        email=user.email,
+        password_hash=hashed_password,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        fitness_level=user.fitness_level,
+        height_cm=user.height_cm,
+        weight_kg=user.weight_kg,
+        bio=user.bio
+    )
+    session.add(db_user)
+    session.commit()
+    session.refresh(db_user)
+    return db_user
+
+
+@router.get("/me", response_model=UserResponse)
+def read_users_me(current_user: User = Depends(get_current_active_user)):
+    return current_user
+
+
+@router.get("/{user_id}", response_model=UserResponse)
+def read_user(user_id: int, session: Session = Depends(get_session), 
+              current_user: User = Depends(get_current_active_user)):
+    if user_id != current_user.user_id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized to access this user")
+    
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@router.get("/", response_model=List[UserResponse])
+def read_users(skip: int = 0, limit: int = 100, 
+               current_user: User = Depends(get_current_admin_user),
+               session: Session = Depends(get_session)):
+    users = session.exec(select(User).offset(skip).limit(limit)).all()
+    return users
+
+
+@router.put("/{user_id}", response_model=UserResponse)
+def update_user(user_id: int, user: UserUpdate, 
+                session: Session = Depends(get_session),
+                current_user: User = Depends(get_current_active_user)):
+    if user_id != current_user.user_id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized to update this user")
+    
+    db_user = session.get(User, user_id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Update user fields if provided
+    user_data = user.dict(exclude_unset=True)
+    if "password" in user_data:
+        user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    
+    for key, value in user_data.items():
+        setattr(db_user, key, value)
+    
+    session.add(db_user)
+    session.commit()
+    session.refresh(db_user)
+    return db_user
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(user_id: int, 
+                session: Session = Depends(get_session),
+                current_user: User = Depends(get_current_active_user)):
+    if user_id != current_user.user_id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this user")
+    
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    session.delete(user)
+    session.commit()
+    return None
+
+
+# app/api/auth.py
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlmodel import Session
+from datetime import timedelta
+from ..database import get_session
+from ..auth import authenticate_user, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
+from ..schemas import Token
+
+router = APIRouter(tags=["authentication"])
+
+
+@router.post("/token", response_model=Token)
+async def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    session: Session = Depends(get_session)
+):
+    user = authenticate_user(session, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+# app/api/exercises.py
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlmodel import Session, select
+from typing import List
+from ..models import Exercise, User
+from ..database import get_session
+from ..schemas import ExerciseCreate, ExerciseResponse, ExerciseUpdate
+from ..auth import get_current_active_user, get_current_admin_user
+
+router = APIRouter(prefix="/exercises", tags=["exercises"])
+
+
+@router.post("/", response_model=ExerciseResponse, status_code=status.HTTP_201_CREATED)
+def create_exercise(
+    exercise: ExerciseCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_admin_user)
+):
+    db_exercise = session.exec(select(Exercise).where(Exercise.exercise_name == exercise.exercise_name)).first()
+    if db_exercise:
+        raise HTTPException(status_code=400, detail="Exercise with this name already exists")
+    
+    db_exercise = Exercise.from_orm(exercise)
+    session.add(db_exercise)
+    session.commit()
+    session.refresh(db_exercise)
+    return db_exercise
+
+
+@router.get("/{exercise_id}", response_model=ExerciseResponse)
+def read_exercise(
+    exercise_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_user)
+):
+    exercise = session.get(Exercise, exercise_id)
+    if not exercise:
+        raise HTTPException(status_code=404, detail="Exercise not found")
+    return exercise
+
+
+@router.get("/", response_model=List[ExerciseResponse])
+def read_exercises(
+    skip: int = 0, 
+    limit: int = 100,
+    workout_type_id: int = None,
+    difficulty_level: str = None,
+    primary_muscle_group: str = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_user)
+):
+    query = select(Exercise)
+    
+    if workout_type_id:
+        query = query.where(Exercise.workout_type_id == workout_type_id)
+    if difficulty_level:
+        query = query.where(Exercise.difficulty_level == difficulty_level)
+    if primary_muscle_group:
+        query = query.where(Exercise.primary_muscle_group == primary_muscle_group)
+    
+    exercises = session.exec(query.offset(skip).limit(limit)).all()
+    return exercises
+
+
+@router.put("/{exercise_id}", response_model=ExerciseResponse)
+def update_exercise(
+    exercise_id: int,
+    exercise: ExerciseUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_admin_user)
+):
+    db_exercise = session.get(Exercise, exercise_id)
+    if not db_exercise:
+        raise HTTPException(status_code=404, detail="Exercise not found")
+    
+    exercise_data = exercise.dict(exclude_unset=True)
+    for key, value in exercise_data.items():
+        setattr(db_exercise, key, value)
+    
+    session.add(db_exercise)
+    session.commit()
+    session.refresh(db_exercise)
+    return db_exercise
+
+
+@router.delete("/{exercise_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_exercise(
+    exercise_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_admin_user)
+):
+    exercise = session.get(Exercise, exercise_id)
+    if not exercise:
+        raise HTTPException(status_code=404, detail="Exercise not found")
+    
+    session.delete(exercise)
+    session.commit()
+    return None
+
+
+# app/api/workout_types.py
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlmodel import Session, select
+from typing import List
+from ..models import WorkoutType, User
+from ..database import get_session
+from ..schemas import WorkoutTypeCreate, WorkoutTypeResponse, WorkoutTypeUpdate
+from ..auth import get_current_active_user, get_current_admin_user
+
+router = APIRouter(prefix="/workout-types", tags=["workout types"])
+
+
+@router.post("/", response_model=WorkoutTypeResponse, status_code=status.HTTP_201_CREATED)
+def create_workout_type(
+    workout_type: WorkoutTypeCreate,
